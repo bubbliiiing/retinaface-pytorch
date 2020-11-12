@@ -203,12 +203,6 @@ class DataGenerator(data.Dataset):
         return len(self.imgs_path)
 
     def __getitem__(self, index):
-        if index == 0:
-            shuffle_index = np.arange(len(self.imgs_path))
-            shuffle(shuffle_index)
-            self.imgs_path = np.array(self.imgs_path)[shuffle_index]
-            self.words = np.array(self.words)[shuffle_index]
-
         img = Image.open(self.imgs_path[index])
         labels = self.words[index]
         annotations = np.zeros((0, 15))
