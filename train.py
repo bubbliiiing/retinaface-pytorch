@@ -146,7 +146,7 @@ if __name__ == "__main__":
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2, verbose=True)
 
         train_dataset = DataGenerator(training_dataset_path,img_dim)
-        gen = DataLoader(train_dataset, batch_size=Batch_size, num_workers=8, pin_memory=True,
+        gen = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=8, pin_memory=True,
                                 drop_last=True, collate_fn=detection_collate)
 
         epoch_size = train_dataset.get_len()//Batch_size
@@ -172,7 +172,7 @@ if __name__ == "__main__":
         optimizer = optim.Adam(net.parameters(),lr,weight_decay=5e-4)
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2, verbose=True)
         train_dataset = DataGenerator(training_dataset_path,img_dim)
-        gen = DataLoader(train_dataset, batch_size=Batch_size, num_workers=4, pin_memory=True,
+        gen = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=4, pin_memory=True,
                                 drop_last=True, collate_fn=detection_collate)
         epoch_size = train_dataset.get_len()//Batch_size
         #------------------------------------#
