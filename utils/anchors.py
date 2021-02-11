@@ -1,7 +1,8 @@
-import torch
 from itertools import product as product
-import numpy as np
 from math import ceil
+
+import numpy as np
+import torch
 
 
 class Anchors(object):
@@ -10,14 +11,22 @@ class Anchors(object):
         self.min_sizes = cfg['min_sizes']
         self.steps = cfg['steps']
         self.clip = cfg['clip']
+        #---------------------------#
+        #   图片的尺寸
+        #---------------------------#
         self.image_size = image_size
+        #---------------------------#
+        #   三个有效特征层高和宽
+        #---------------------------#
         self.feature_maps = [[ceil(self.image_size[0]/step), ceil(self.image_size[1]/step)] for step in self.steps]
 
     def get_anchors(self):
         anchors = []
         for k, f in enumerate(self.feature_maps):
             min_sizes = self.min_sizes[k]
-            # 每个网格点2个先验框，都是正方形
+            #-----------------------------------------#
+            #   对特征层的高和宽进行循环迭代
+            #-----------------------------------------#
             for i, j in product(range(f[0]), range(f[1])):
                 for min_size in min_sizes:
                     s_kx = min_size / self.image_size[1]

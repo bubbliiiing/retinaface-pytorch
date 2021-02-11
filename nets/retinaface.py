@@ -1,15 +1,19 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
-import torchvision.models.detection.backbone_utils as backbone_utils
-import torchvision.models._utils as _utils
 import torch.nn.functional as F
+import torchvision.models._utils as _utils
+import torchvision.models.detection.backbone_utils as backbone_utils
 from torchvision import models
-from collections import OrderedDict
-from nets.mobilenet025 import MobileNetV1
+
 from nets.layers import FPN, SSH
+from nets.mobilenet025 import MobileNetV1
 
 
-
+#---------------------------------------------------#
+#   种类预测（是否包含人脸）
+#---------------------------------------------------#
 class ClassHead(nn.Module):
     def __init__(self,inchannels=512,num_anchors=2):
         super(ClassHead,self).__init__()
@@ -22,6 +26,9 @@ class ClassHead(nn.Module):
         
         return out.view(out.shape[0], -1, 2)
 
+#---------------------------------------------------#
+#   预测框预测
+#---------------------------------------------------#
 class BboxHead(nn.Module):
     def __init__(self,inchannels=512,num_anchors=2):
         super(BboxHead,self).__init__()
@@ -33,6 +40,9 @@ class BboxHead(nn.Module):
 
         return out.view(out.shape[0], -1, 4)
 
+#---------------------------------------------------#
+#   人脸关键点预测
+#---------------------------------------------------#
 class LandmarkHead(nn.Module):
     def __init__(self,inchannels=512,num_anchors=2):
         super(LandmarkHead,self).__init__()
@@ -45,13 +55,8 @@ class LandmarkHead(nn.Module):
         return out.view(out.shape[0], -1, 10)
 
 class RetinaFace(nn.Module):
-    def __init__(self, cfg = None, pretrained = False, phase = 'train'):
-        """
-        :param cfg:  Network related settings.
-        :param phase: train or test.
-        """
+    def __init__(self, cfg = None, pretrained = False, mode = 'train'):
         super(RetinaFace,self).__init__()
-        self.phase = phase
         backbone = None
         if cfg['name'] == 'mobilenet0.25':
             backbone = MobileNetV1()
@@ -60,30 +65,27 @@ class RetinaFace(nn.Module):
                 from collections import OrderedDict
                 new_state_dict = OrderedDict()
                 for k, v in checkpoint['state_dict'].items():
-                    name = k[7:]  # remove module.
+                    name = k[7:]
                     new_state_dict[name] = v
-                # load params
                 backbone.load_state_dict(new_state_dict)
         elif cfg['name'] == 'Resnet50':
             backbone = models.resnet50(pretrained=pretrained)
 
         self.body = _utils.IntermediateLayerGetter(backbone, cfg['return_layers'])
 
-        in_channels_stage2 = cfg['in_channel']
-        in_channels_list = [
-            in_channels_stage2 * 2,
-            in_channels_stage2 * 4,
-            in_channels_stage2 * 8,
-        ]
-        out_channels = cfg['out_channel']
-        self.fpn = FPN(in_channels_list,out_channels)
-        self.ssh1 = SSH(out_channels, out_channels)
-        self.ssh2 = SSH(out_channels, out_channels)
-        self.ssh3 = SSH(out_channels, out_channels)
+        # 获得每个初步有效特征层的通道数
+        in_channels_list = [cfg['in_channel'] * 2, cfg['in_channel'] * 4, cfg['in_channel'] * 8]
+        self.fpn = FPN(in_channels_list, cfg['out_channel'])
+        # 利用ssh模块提高模型感受野
+        self.ssh1 = SSH(cfg['out_channel'], cfg['out_channel'])
+        self.ssh2 = SSH(cfg['out_channel'], cfg['out_channel'])
+        self.ssh3 = SSH(cfg['out_channel'], cfg['out_channel'])
 
         self.ClassHead = self._make_class_head(fpn_num=3, inchannels=cfg['out_channel'])
         self.BboxHead = self._make_bbox_head(fpn_num=3, inchannels=cfg['out_channel'])
         self.LandmarkHead = self._make_landmark_head(fpn_num=3, inchannels=cfg['out_channel'])
+
+        self.mode = mode
 
     def _make_class_head(self,fpn_num=3,inchannels=64,anchor_num=2):
         classhead = nn.ModuleList()
@@ -104,22 +106,35 @@ class RetinaFace(nn.Module):
         return landmarkhead
 
     def forward(self,inputs):
-        out = self.body(inputs)
+        #-------------------------------------------#
+        #   获得三个shape的有效特征层
+        #   分别是C3  80, 80, 64
+        #         C4  40, 40, 128
+        #         C5  20, 20, 256
+        #-------------------------------------------#
+        out = self.body.forward(inputs)
 
-        # FPN
-        fpn = self.fpn(out)
+        #-------------------------------------------#
+        #   获得三个shape的有效特征层
+        #   分别是output1  80, 80, 64
+        #         output2  40, 40, 64
+        #         output3  20, 20, 64
+        #-------------------------------------------#
+        fpn = self.fpn.forward(out)
 
-        # SSH
         feature1 = self.ssh1(fpn[0])
         feature2 = self.ssh2(fpn[1])
         feature3 = self.ssh3(fpn[2])
         features = [feature1, feature2, feature3]
 
+        #-------------------------------------------#
+        #   将所有结果进行堆叠
+        #-------------------------------------------#
         bbox_regressions = torch.cat([self.BboxHead[i](feature) for i, feature in enumerate(features)], dim=1)
         classifications = torch.cat([self.ClassHead[i](feature) for i, feature in enumerate(features)], dim=1)
         ldm_regressions = torch.cat([self.LandmarkHead[i](feature) for i, feature in enumerate(features)], dim=1)
 
-        if self.phase == 'train':
+        if self.mode == 'train':
             output = (bbox_regressions, classifications, ldm_regressions)
         else:
             output = (bbox_regressions, F.softmax(classifications, dim=-1), ldm_regressions)

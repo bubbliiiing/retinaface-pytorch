@@ -1,17 +1,19 @@
 import os
-import torch
 import os.path
-import numpy as np
-from PIL import Image
-import cv2
-import torch.nn as nn
-import torch.utils.data as data
-import torch.nn.functional as F  
 from random import shuffle
-from torch.autograd import Variable
-from utils.box_utils import match, log_sum_exp
 
-rgb_mean = (104, 117, 123) # bgr order
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.data as data
+from PIL import Image
+from torch.autograd import Variable
+from utils.box_utils import log_sum_exp, match
+
+rgb_mean = (104, 117, 123)
+
 class MultiBoxLoss(nn.Module):
     def __init__(self, num_classes, overlap_thresh, neg_pos, cuda=True):
         super(MultiBoxLoss, self).__init__()
@@ -25,22 +27,45 @@ class MultiBoxLoss(nn.Module):
         self.cuda = cuda
 
     def forward(self, predictions, priors, targets):
+        #--------------------------------------------------------------------#
+        #   取出预测结果的三个值：框的回归信息，置信度，人脸关键点的回归信息
+        #--------------------------------------------------------------------#
         loc_data, conf_data, landm_data = predictions
+        #--------------------------------------------------#
+        #   计算出batch_size和先验框的数量
+        #--------------------------------------------------#
         priors = priors
         num = loc_data.size(0)
         num_priors = (priors.size(0))
 
-        # match priors (default boxes) and ground truth boxes
+        #--------------------------------------------------#
+        #   创建一个tensor进行处理
+        #--------------------------------------------------#
         loc_t = torch.Tensor(num, num_priors, 4)
         landm_t = torch.Tensor(num, num_priors, 10)
         conf_t = torch.LongTensor(num, num_priors)
+
         for idx in range(num):
+            # 获得真实框与标签
             truths = targets[idx][:, :4].data
             labels = targets[idx][:, -1].data
             landms = targets[idx][:, 4:14].data
+
+            # 获得先验框
             defaults = priors.data
+            #--------------------------------------------------#
+            #   利用真实框和先验框进行匹配。
+            #   如果真实框和先验框的重合度较高，则认为匹配上了。
+            #   该先验框用于负责检测出该真实框。
+            #--------------------------------------------------#
             match(self.threshold, truths, defaults, self.variance, labels, landms, loc_t, conf_t, landm_t, idx)
             
+        #--------------------------------------------------#
+        #   转化成Variable
+        #   loc_t   (num, num_priors, 4)
+        #   conf_t  (num, num_priors)
+        #   landm_t (num, num_priors, 10)
+        #--------------------------------------------------#
         zeros = torch.tensor(0)
         if self.cuda:
             loc_t = loc_t.cuda()
@@ -48,66 +73,84 @@ class MultiBoxLoss(nn.Module):
             landm_t = landm_t.cuda()
             zeros = zeros.cuda()
 
-        # landm Loss (Smooth L1)
-        # Shape: [batch,num_priors,10]
+        #------------------------------------------------------------------------#
+        #   有人脸关键点的人脸真实框的标签为1，没有人脸关键点的人脸真实框标签为-1
+        #   所以计算人脸关键点loss的时候pos1 = conf_t > zeros
+        #   计算人脸框的loss的时候pos = conf_t != zeros
+        #------------------------------------------------------------------------#  
         pos1 = conf_t > zeros
-        num_pos_landm = pos1.long().sum(1, keepdim=True)
-        N1 = max(num_pos_landm.data.sum().float(), 1)
-        
         pos_idx1 = pos1.unsqueeze(pos1.dim()).expand_as(landm_data)
         landm_p = landm_data[pos_idx1].view(-1, 10)
         landm_t = landm_t[pos_idx1].view(-1, 10)
         loss_landm = F.smooth_l1_loss(landm_p, landm_t, reduction='sum')
-
+        
         pos = conf_t != zeros
-        conf_t[pos] = 1
-
-        # Localization Loss (Smooth L1)
-        # Shape: [batch,num_priors,4]
         pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
 
-        # Compute max conf across batch for hard negative mining
+        #--------------------------------------------------#
+        #   batch_conf  (num * num_priors, 2)
+        #   loss_c      (num, num_priors)
+        #--------------------------------------------------#
+        conf_t[pos] = 1
         batch_conf = conf_data.view(-1, self.num_classes)
+        # 这个地方是在寻找难分类的先验框
         loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
 
-        # Hard Negative Mining
-        loss_c[pos.view(-1, 1)] = 0 # filter out pos boxes for now
+        # 难分类的先验框不把正样本考虑进去，只考虑难分类的负样本
+        loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
+        #--------------------------------------------------#
+        #   loss_idx    (num, num_priors)
+        #   idx_rank    (num, num_priors)
+        #--------------------------------------------------#
         _, loss_idx = loss_c.sort(1, descending=True)
         _, idx_rank = loss_idx.sort(1)
+        #--------------------------------------------------#
+        #   求和得到每一个图片内部有多少正样本
+        #   num_pos     (num, )
+        #   neg         (num, num_priors)
+        #--------------------------------------------------#
         num_pos = pos.long().sum(1, keepdim=True)
+        # 限制负样本数量
         num_neg = torch.clamp(self.negpos_ratio*num_pos, max=pos.size(1)-1)
         neg = idx_rank < num_neg.expand_as(idx_rank)
 
-        # Confidence Loss Including Positive and Negative Examples
+        #--------------------------------------------------#
+        #   求和得到每一个图片内部有多少正样本
+        #   pos_idx   (num, num_priors, num_classes)
+        #   neg_idx   (num, num_priors, num_classes)
+        #--------------------------------------------------#
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
+        
+        # 选取出用于训练的正样本与负样本，计算loss
         conf_p = conf_data[(pos_idx+neg_idx).gt(0)].view(-1,self.num_classes)
         targets_weighted = conf_t[(pos+neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
 
-        # Sum of losses: L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
         N = max(num_pos.data.sum().float(), 1)
         loss_l /= N
         loss_c /= N
-        loss_landm /= N1
 
+        num_pos_landm = pos1.long().sum(1, keepdim=True)
+        N1 = max(num_pos_landm.data.sum().float(), 1)
+        loss_landm /= N1
         return loss_l, loss_c, loss_landm
 
 def rand(a=0, b=1):
     return np.random.rand()*(b-a) + a
 
-def get_random_data(image, targes, input_shape, random=True, jitter=.1, hue=.1, sat=1.5, val=1.5):
+def get_random_data(image, targes, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5):
     iw, ih = image.size
     h, w = input_shape
     box = targes
 
     # 对图像进行缩放并且进行长和宽的扭曲
     new_ar = w/h * rand(1-jitter,1+jitter)/rand(1-jitter,1+jitter)
-    scale = rand(0.75,1.25)
+    scale = rand(0.25,2.25)
     if new_ar < 1:
         nh = int(scale*h)
         nw = int(nh*new_ar)
@@ -203,21 +246,29 @@ class DataGenerator(data.Dataset):
         return len(self.imgs_path)
 
     def __getitem__(self, index):
+        #-----------------------------------#
+        #   打开图像，获取对应的标签
+        #-----------------------------------#
         img = Image.open(self.imgs_path[index])
         labels = self.words[index]
         annotations = np.zeros((0, 15))
+
         if len(labels) == 0:
             return img, annotations
 
         for idx, label in enumerate(labels):
             annotation = np.zeros((1, 15))
-            # bbox
+            #-----------------------------------#
+            #   bbox 真实框的位置
+            #-----------------------------------#
             annotation[0, 0] = label[0]  # x1
             annotation[0, 1] = label[1]  # y1
             annotation[0, 2] = label[0] + label[2]  # x2
             annotation[0, 3] = label[1] + label[3]  # y2
 
-            # landmarks
+            #-----------------------------------#
+            #   landmarks 人脸关键点的位置
+            #-----------------------------------#
             annotation[0, 4] = label[4]    # l0_x
             annotation[0, 5] = label[5]    # l0_y
             annotation[0, 6] = label[7]    # l1_x
@@ -252,5 +303,4 @@ def detection_collate(batch):
         images.append(img)
         targets.append(box)
     images = np.array(images)
-    targets = np.array(targets)
     return images, targets

@@ -1,14 +1,23 @@
 #-------------------------------------#
-#       调用摄像头检测
+#   调用摄像头或者视频进行检测
+#   调用摄像头直接运行即可
+#   调用视频可以将cv2.VideoCapture()指定路径
+#   视频的保存并不难，可以百度一下看看
 #-------------------------------------#
-from retinaface import Retinaface
-from PIL import Image
-import numpy as np
-import cv2
 import time
+
+import cv2
+import numpy as np
+from PIL import Image
+
+from retinaface import Retinaface
+
 retinaface = Retinaface()
-# 调用摄像头
-capture=cv2.VideoCapture(0) # capture=cv2.VideoCapture("1.mp4")
+#-------------------------------------#
+#   调用摄像头
+#   capture=cv2.VideoCapture("1.mp4")
+#-------------------------------------#
+capture=cv2.VideoCapture(0)
 
 fps = 0.0
 while(True):
@@ -17,10 +26,8 @@ while(True):
     ref,frame=capture.read()
     # 格式转变，BGRtoRGB
     frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
-
     # 进行检测
     frame = np.array(retinaface.detect_image(frame))
-
     # RGBtoBGR满足opencv显示格式
     frame = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
 

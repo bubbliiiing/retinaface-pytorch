@@ -1,9 +1,12 @@
-import numpy as np
-from math import ceil
 from itertools import product as product
-from utils.config import cfg_mnet
+from math import ceil
+
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+
+from utils.config import cfg_mnet
+
 
 def decode(loc, priors, variances):
     # 中心解码，宽高解码
