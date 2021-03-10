@@ -14,8 +14,8 @@
 ## 性能情况
 | 训练数据集 | 权值文件名称 | 测试数据集 | 输入图片大小 | Easy | Medium | Hard |
 | :-----: | :-----: | :------: | :------: | :------: | :-----: | :-----: |
-| Widerface-Train | Retinaface_mobilenet0.25.pth | Widerface-Val | 1280x1280 | 88.57% | 85.90% | 73.68% |
-| Widerface-Train | Retinaface_resnet50.pth | Widerface-Val | 1280x1280 | 94.54% | 92.78% | 82.42% |
+| Widerface-Train | [Retinaface_mobilenet0.25.pth](https://github.com/bubbliiiing/retinaface-pytorch/releases/download/v1.0/Retinaface_mobilenet0.25.pth) | Widerface-Val | 1280x1280 | 89.60% | 87.02% | 74.70% |
+| Widerface-Train | [Retinaface_resnet50.pth](https://github.com/bubbliiiing/retinaface-pytorch/releases/download/v1.0/Retinaface_resnet50.pth) | Widerface-Val | 1280x1280 | 94.72% | 93.13% | 84.48% |
 
 ## 注意事项
 本库下载过来可以直接进行预测，已经在model_data文件夹下存放了Retinaface_mobilenet0.25.pth文件，可用于预测。  
@@ -26,10 +26,10 @@ pytorch==1.2.0
 
 ## 文件下载
 训练所需的Retinaface_resnet50.pth等文件可以在百度云下载。    
-链接: https://pan.baidu.com/s/1d-4wxJnRIzjkgouIW8EuZA 提取码: dmth    
+链接: https://pan.baidu.com/s/1xneLH0YtiDfO2oncesRY6w 提取码: 2a1y    
 
 数据集可以在如下连接里下载。      
-链接: https://pan.baidu.com/s/1LIYlK5sVx4qsK9tvEuJ4cw 提取码: 2yvx   
+链接: https://pan.baidu.com/s/1LIYlK5sVx4qsK9tvEuJ4cw 提取码: 2yvx    
 
 ## 预测步骤
 ### a、使用预训练权重
