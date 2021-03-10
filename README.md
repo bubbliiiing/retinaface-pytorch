@@ -14,8 +14,8 @@
 ## 性能情况
 | 训练数据集 | 权值文件名称 | 测试数据集 | 输入图片大小 | Easy | Medium | Hard |
 | :-----: | :-----: | :------: | :------: | :------: | :-----: | :-----: |
-| Widerface-Train | [Retinaface_mobilenet0.25.pth](https://github.com/bubbliiiing/retinaface-pytorch/releases/download/v1.0/Retinaface_mobilenet0.25.pth) | Widerface-Val | 1280x1280 | 89.60% | 87.02% | 74.70% |
-| Widerface-Train | [Retinaface_resnet50.pth](https://github.com/bubbliiiing/retinaface-pytorch/releases/download/v1.0/Retinaface_resnet50.pth) | Widerface-Val | 1280x1280 | 94.72% | 93.13% | 84.48% |
+| Widerface-Train | Retinaface_mobilenet0.25.pth | Widerface-Val | 1280x1280 | 89.60% | 87.02% | 74.70% |
+| Widerface-Train | Retinaface_resnet50.pth | Widerface-Val | 1280x1280 | 94.72% | 93.13% | 84.48% |
 
 ## 注意事项
 本库下载过来可以直接进行预测，已经在model_data文件夹下存放了Retinaface_mobilenet0.25.pth文件，可用于预测。  
