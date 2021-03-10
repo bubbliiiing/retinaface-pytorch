@@ -76,6 +76,9 @@ def fit_one_epoch(net,criterion,epoch,epoch_size,gen,Epoch,anchors,cfg,cuda):
     torch.save(model.state_dict(), 'logs/Epoch%d-Total_Loss%.4f.pth'%((epoch+1),(total_c_loss + total_r_loss + total_landmark_loss)/(epoch_size+1)))
     return 
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="0" 
+
 if __name__ == "__main__":
     num_classes = 2
     #-------------------------------#
@@ -176,7 +179,7 @@ if __name__ == "__main__":
         #   BATCH_SIZE不要太小，不然训练效果很差
         #--------------------------------------------#
         lr = 1e-4
-        Batch_size = 8
+        Batch_size = 4
         Freeze_Epoch = 50
         Unfreeze_Epoch = 100
 
