@@ -61,8 +61,10 @@ class Anchors(object):
             output = np.clip(output, 0, 1)
         return output
 
+cfg     = cfg_mnet
+cfg_mnet['image_size'] = 640
 img_dim = cfg_mnet['image_size']
-anchors = Anchors(cfg_mnet, image_size=(img_dim, img_dim)).get_anchors()
+anchors = Anchors(cfg, image_size=(img_dim, img_dim)).get_anchors()
 anchors = anchors[-800:]*img_dim
 
 center_x = (anchors[:,0]+anchors[:,2])/2
