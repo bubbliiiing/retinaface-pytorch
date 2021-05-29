@@ -305,8 +305,6 @@ class mAP_Retinaface(Retinaface):
 
         return boxes_conf_landms
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0" 
 if __name__ == '__main__':
     #---------------------------------------------------------#
     #   评估使用的网络和参数可以直接在retinaface.py里面修改

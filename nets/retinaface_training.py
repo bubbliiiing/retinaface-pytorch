@@ -1,15 +1,15 @@
 import os
 import os.path
-from random import shuffle
 
 import cv2
 import numpy as np
+import scipy.signal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
+from matplotlib import pyplot as plt
 from PIL import Image
-from torch.autograd import Variable
 from utils.box_utils import log_sum_exp, match
 
 rgb_mean = (104, 117, 123)
@@ -311,3 +311,65 @@ def detection_collate(batch):
         targets.append(box)
     images = np.array(images)
     return images, targets
+
+
+def weights_init(net, init_type='normal', init_gain=0.02):
+    def init_func(m):
+        classname = m.__class__.__name__
+        if hasattr(m, 'weight') and classname.find('Conv') != -1:
+            if init_type == 'normal':
+                torch.nn.init.normal_(m.weight.data, 0.0, init_gain)
+            elif init_type == 'xavier':
+                torch.nn.init.xavier_normal_(m.weight.data, gain=init_gain)
+            elif init_type == 'kaiming':
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+            elif init_type == 'orthogonal':
+                torch.nn.init.orthogonal_(m.weight.data, gain=init_gain)
+            else:
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
+        elif classname.find('BatchNorm2d') != -1:
+            torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+            torch.nn.init.constant_(m.bias.data, 0.0)
+    print('initialize network with %s type' % init_type)
+    net.apply(init_func)
+
+class LossHistory():
+    def __init__(self, log_dir):
+        import datetime
+        curr_time = datetime.datetime.now()
+        time_str = datetime.datetime.strftime(curr_time,'%Y_%m_%d_%H_%M_%S')
+        self.log_dir    = log_dir
+        self.time_str   = time_str
+        self.save_path  = os.path.join(self.log_dir, "loss_" + str(self.time_str))
+        self.losses     = []
+        
+        os.makedirs(self.save_path)
+
+    def append_loss(self, loss):
+        self.losses.append(loss)
+        with open(os.path.join(self.save_path, "epoch_loss_" + str(self.time_str) + ".txt"), 'a') as f:
+            f.write(str(loss))
+            f.write("\n")
+        self.loss_plot()
+
+    def loss_plot(self):
+        iters = range(len(self.losses))
+
+        plt.figure()
+        plt.plot(iters, self.losses, 'red', linewidth = 2, label='train loss')
+        try:
+            if len(self.losses) < 25:
+                num = 5
+            else:
+                num = 15
+            
+            plt.plot(iters, scipy.signal.savgol_filter(self.losses, num, 3), 'green', linestyle = '--', linewidth = 2, label='smooth train loss')
+        except:
+            pass
+
+        plt.grid(True)
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend(loc="upper right")
+
+        plt.savefig(os.path.join(self.save_path, "epoch_loss_" + str(self.time_str) + ".png"))

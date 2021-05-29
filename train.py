@@ -1,21 +1,12 @@
-from __future__ import print_function
-
-import argparse
-import datetime
-import math
-import os
-import time
-
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from nets.retinaface import RetinaFace
-from nets.retinaface_training import (DataGenerator, MultiBoxLoss,
+from nets.retinaface_training import (DataGenerator, MultiBoxLoss, LossHistory, weights_init,
                                       detection_collate)
 from utils.anchors import Anchors
 from utils.config import cfg_mnet, cfg_re50
@@ -30,6 +21,7 @@ def fit_one_epoch(net,criterion,epoch,epoch_size,gen,Epoch,anchors,cfg,cuda):
     total_c_loss = 0
     total_landmark_loss = 0
 
+    print('Start Train')
     with tqdm(total=epoch_size,desc=f'Epoch {epoch + 1}/{Epoch}',postfix=dict,mininterval=0.3) as pbar:
         for iteration, batch in enumerate(gen):
             if iteration >= epoch_size:
@@ -40,11 +32,11 @@ def fit_one_epoch(net,criterion,epoch,epoch_size,gen,Epoch,anchors,cfg,cuda):
             
             with torch.no_grad():
                 if cuda:
-                    images = Variable(torch.from_numpy(images).type(torch.FloatTensor)).cuda()
-                    targets = [Variable(torch.from_numpy(ann).type(torch.FloatTensor)).cuda() for ann in targets]
+                    images = torch.from_numpy(images).type(torch.FloatTensor).cuda()
+                    targets = [torch.from_numpy(ann).type(torch.FloatTensor).cuda() for ann in targets]
                 else:
-                    images = Variable(torch.from_numpy(images).type(torch.FloatTensor))
-                    targets = [Variable(torch.from_numpy(ann).type(torch.FloatTensor)) for ann in targets]
+                    images = torch.from_numpy(images).type(torch.FloatTensor)
+                    targets = [torch.from_numpy(ann).type(torch.FloatTensor) for ann in targets]
             #----------------------#
             #   清零梯度
             #----------------------#
@@ -74,10 +66,8 @@ def fit_one_epoch(net,criterion,epoch,epoch_size,gen,Epoch,anchors,cfg,cuda):
 
     print('Saving state, iter:', str(epoch+1))
     torch.save(model.state_dict(), 'logs/Epoch%d-Total_Loss%.4f.pth'%((epoch+1),(total_c_loss + total_r_loss + total_landmark_loss)/(epoch_size+1)))
+    loss_history.append_loss((total_c_loss + total_r_loss + total_landmark_loss)/(epoch_size+1))
     return 
-
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0" 
 
 if __name__ == "__main__":
     num_classes = 2
@@ -138,7 +128,8 @@ if __name__ == "__main__":
         net = net.cuda()
 
     criterion = MultiBoxLoss(num_classes, 0.35, 7, Cuda)
-    
+    loss_history = LossHistory("logs/")
+
     #------------------------------------------------------#
     #   主干特征提取网络特征通用，冻结训练可以加快训练速度
     #   也可以在训练初期防止权值被破坏。
@@ -151,19 +142,19 @@ if __name__ == "__main__":
         #--------------------------------------------#
         #   BATCH_SIZE不要太小，不然训练效果很差
         #--------------------------------------------#
-        lr = 1e-3
-        Batch_size = 8
-        Init_Epoch = 0
-        Freeze_Epoch = 50
+        lr              = 1e-3
+        Batch_size      = 8
+        Init_Epoch      = 0
+        Freeze_Epoch    = 50
         
-        optimizer = optim.Adam(net.parameters(),lr,weight_decay=5e-4)
-        lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.92)
+        optimizer       = optim.Adam(net.parameters(),lr,weight_decay=5e-4)
+        lr_scheduler    = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.92)
 
-        train_dataset = DataGenerator(training_dataset_path,img_dim)
-        gen = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=4, pin_memory=True,
+        train_dataset   = DataGenerator(training_dataset_path,img_dim)
+        gen             = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=4, pin_memory=True,
                                 drop_last=True, collate_fn=detection_collate)
 
-        epoch_size = train_dataset.get_len()//Batch_size
+        epoch_size      = train_dataset.get_len()//Batch_size
         #------------------------------------#
         #   冻结一定部分训练
         #------------------------------------#
@@ -178,19 +169,19 @@ if __name__ == "__main__":
         #--------------------------------------------#
         #   BATCH_SIZE不要太小，不然训练效果很差
         #--------------------------------------------#
-        lr = 1e-4
-        Batch_size = 4
-        Freeze_Epoch = 50
-        Unfreeze_Epoch = 100
+        lr              = 1e-4
+        Batch_size      = 4
+        Freeze_Epoch    = 50
+        Unfreeze_Epoch  = 100
 
-        optimizer = optim.Adam(net.parameters(),lr,weight_decay=5e-4)
-        lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.92)
+        optimizer       = optim.Adam(net.parameters(),lr,weight_decay=5e-4)
+        lr_scheduler    = optim.lr_scheduler.StepLR(optimizer,step_size=1,gamma=0.92)
 
-        train_dataset = DataGenerator(training_dataset_path,img_dim)
-        gen = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=4, pin_memory=True,
+        train_dataset   = DataGenerator(training_dataset_path,img_dim)
+        gen             = DataLoader(train_dataset, shuffle=True, batch_size=Batch_size, num_workers=4, pin_memory=True,
                                 drop_last=True, collate_fn=detection_collate)
 
-        epoch_size = train_dataset.get_len()//Batch_size
+        epoch_size      = train_dataset.get_len()//Batch_size
         #------------------------------------#
         #   解冻后训练
         #------------------------------------#
