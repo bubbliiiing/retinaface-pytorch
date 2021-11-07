@@ -1,30 +1,176 @@
-import os
-import os.path
-
-import cv2
-import numpy as np
-import scipy.signal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.data as data
-from matplotlib import pyplot as plt
-from PIL import Image
-from utils.box_utils import log_sum_exp, match
 
-rgb_mean = (104, 117, 123)
+#------------------------------#
+#   获得框的左上角和右下角
+#------------------------------#
+def point_form(boxes):
+    return torch.cat((boxes[:, :2] - boxes[:, 2:]/2,
+                     boxes[:, :2] + boxes[:, 2:]/2), 1)
+
+#------------------------------#
+#   获得框的中心和宽高
+#------------------------------#
+def center_size(boxes):
+    return torch.cat((boxes[:, 2:] + boxes[:, :2])/2,
+                     boxes[:, 2:] - boxes[:, :2], 1)
+
+#----------------------------------#
+#   计算所有真实框和先验框的交面积
+#----------------------------------#
+def intersect(box_a, box_b):
+    A = box_a.size(0)
+    B = box_b.size(0)
+    #------------------------------#
+    #   获得交矩形的左上角
+    #------------------------------#
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2),
+                       box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    #------------------------------#
+    #   获得交矩形的右下角
+    #------------------------------#
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2),
+                       box_b[:, :2].unsqueeze(0).expand(A, B, 2))
+    inter = torch.clamp((max_xy - min_xy), min=0)
+    #-------------------------------------#
+    #   计算先验框和所有真实框的重合面积
+    #-------------------------------------#
+    return inter[:, :, 0] * inter[:, :, 1]
+
+def jaccard(box_a, box_b):
+    #-------------------------------------#
+    #   返回的inter的shape为[A,B]
+    #   代表每一个真实框和先验框的交矩形
+    #-------------------------------------#
+    inter = intersect(box_a, box_b)
+    #-------------------------------------#
+    #   计算先验框和真实框各自的面积
+    #-------------------------------------#
+    area_a = ((box_a[:, 2]-box_a[:, 0]) *
+              (box_a[:, 3]-box_a[:, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
+    area_b = ((box_b[:, 2]-box_b[:, 0]) *
+              (box_b[:, 3]-box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
+
+    union = area_a + area_b - inter
+    #-------------------------------------#
+    #   每一个真实框和先验框的交并比[A,B]
+    #-------------------------------------#
+    return inter / union  # [A,B]
+
+def encode(matched, priors, variances):
+    # 进行编码的操作
+    g_cxcy = (matched[:, :2] + matched[:, 2:])/2 - priors[:, :2]
+    # 中心编码
+    g_cxcy /= (variances[0] * priors[:, 2:])
+    
+    # 宽高编码
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)  # [num_priors,4]
+
+def encode_landm(matched, priors, variances):
+    matched = torch.reshape(matched, (matched.size(0), 5, 2))
+    priors_cx = priors[:, 0].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_cy = priors[:, 1].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_w = priors[:, 2].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_h = priors[:, 3].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors = torch.cat([priors_cx, priors_cy, priors_w, priors_h], dim=2)
+
+    # 减去中心后除上宽高
+    g_cxcy = matched[:, :, :2] - priors[:, :, :2]
+    g_cxcy /= (variances[0] * priors[:, :, 2:])
+    g_cxcy = g_cxcy.reshape(g_cxcy.size(0), -1)
+    return g_cxcy
+
+def log_sum_exp(x):
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x-x_max), 1, keepdim=True)) + x_max
+
+def match(threshold, truths, priors, variances, labels, landms, loc_t, conf_t, landm_t, idx):
+    #----------------------------------------------#
+    #   计算所有的先验框和真实框的重合程度
+    #----------------------------------------------#
+    overlaps = jaccard(
+        truths,
+        point_form(priors)
+    )
+    #----------------------------------------------#
+    #   所有真实框和先验框的最好重合程度
+    #   best_prior_overlap [truth_box,1]
+    #   best_prior_idx [truth_box,1]
+    #----------------------------------------------#
+    best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
+    best_prior_idx.squeeze_(1)
+    best_prior_overlap.squeeze_(1)
+
+    #----------------------------------------------#
+    #   所有先验框和真实框的最好重合程度
+    #   best_truth_overlap [1,prior]
+    #   best_truth_idx [1,prior]
+    #----------------------------------------------#
+    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
+    best_truth_idx.squeeze_(0)
+    best_truth_overlap.squeeze_(0)
+
+    #----------------------------------------------#
+    #   用于保证每个真实框都至少有对应的一个先验框
+    #----------------------------------------------#
+    best_truth_overlap.index_fill_(0, best_prior_idx, 2)
+    # 对best_truth_idx内容进行设置
+    for j in range(best_prior_idx.size(0)):
+        best_truth_idx[best_prior_idx[j]] = j
+
+    #----------------------------------------------#
+    #   获取每一个先验框对应的真实框[num_priors,4]
+    #----------------------------------------------#
+    matches = truths[best_truth_idx]            
+    # Shape: [num_priors] 此处为每一个anchor对应的label取出来
+    conf = labels[best_truth_idx]        
+    matches_landm = landms[best_truth_idx]
+           
+    #----------------------------------------------#
+    #   如果重合程度小于threhold则认为是背景
+    #----------------------------------------------#
+    conf[best_truth_overlap < threshold] = 0    
+    #----------------------------------------------#
+    #   利用真实框和先验框进行编码
+    #   编码后的结果就是网络应该有的预测结果
+    #----------------------------------------------#
+    loc = encode(matches, priors, variances)
+    landm = encode_landm(matches_landm, priors, variances)
+
+    #----------------------------------------------#
+    #   [num_priors, 4]
+    #----------------------------------------------#
+    loc_t[idx] = loc
+    #----------------------------------------------#
+    #   [num_priors]
+    #----------------------------------------------#
+    conf_t[idx] = conf
+    #----------------------------------------------#
+    #   [num_priors, 10]
+    #----------------------------------------------#
+    landm_t[idx] = landm
+
 
 class MultiBoxLoss(nn.Module):
-    def __init__(self, num_classes, overlap_thresh, neg_pos, cuda=True):
+    def __init__(self, num_classes, overlap_thresh, neg_pos, variance, cuda=True):
         super(MultiBoxLoss, self).__init__()
-        # 对于retinaface而言num_classes等于2
-        self.num_classes = num_classes
-        # 重合程度在多少以上认为该先验框可以用来预测
-        self.threshold = overlap_thresh
-        # 正负样本的比率
-        self.negpos_ratio = neg_pos
-        self.variance = [0.1, 0.2]
-        self.cuda = cuda
+        #----------------------------------------------#
+        #   对于retinaface而言num_classes等于2
+        #----------------------------------------------#
+        self.num_classes    = num_classes
+        #----------------------------------------------#
+        #   重合程度在多少以上认为该先验框可以用来预测
+        #----------------------------------------------#
+        self.threshold      = overlap_thresh
+        #----------------------------------------------#
+        #   正负样本的比率
+        #----------------------------------------------#
+        self.negpos_ratio   = neg_pos
+        self.variance       = variance
+        self.cuda           = cuda
 
     def forward(self, predictions, priors, targets):
         #--------------------------------------------------------------------#
@@ -34,16 +180,15 @@ class MultiBoxLoss(nn.Module):
         #--------------------------------------------------#
         #   计算出batch_size和先验框的数量
         #--------------------------------------------------#
-        priors = priors
-        num = loc_data.size(0)
-        num_priors = (priors.size(0))
+        num         = loc_data.size(0)
+        num_priors  = (priors.size(0))
 
         #--------------------------------------------------#
         #   创建一个tensor进行处理
         #--------------------------------------------------#
-        loc_t = torch.Tensor(num, num_priors, 4)
+        loc_t   = torch.Tensor(num, num_priors, 4)
         landm_t = torch.Tensor(num, num_priors, 10)
-        conf_t = torch.LongTensor(num, num_priors)
+        conf_t  = torch.LongTensor(num, num_priors)
 
         for idx in range(num):
             # 获得真实框与标签
@@ -140,179 +285,6 @@ class MultiBoxLoss(nn.Module):
         loss_landm /= N1
         return loss_l, loss_c, loss_landm
 
-def rand(a=0, b=1):
-    return np.random.rand()*(b-a) + a
-
-def get_random_data(image, targes, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5):
-    iw, ih = image.size
-    h, w = input_shape
-    box = targes
-
-    # 对图像进行缩放并且进行长和宽的扭曲
-    new_ar = w/h * rand(1-jitter,1+jitter)/rand(1-jitter,1+jitter)
-    scale = rand(0.25, 3.25)
-    if new_ar < 1:
-        nh = int(scale*h)
-        nw = int(nh*new_ar)
-    else:
-        nw = int(scale*w)
-        nh = int(nw/new_ar)
-    image = image.resize((nw,nh), Image.BICUBIC)
-
-    # 将图像多余的部分加上灰条
-    dx = int(rand(0, w-nw))
-    dy = int(rand(0, h-nh))
-    new_image = Image.new('RGB', (w,h), (128,128,128))
-    new_image.paste(image, (dx, dy))
-    image = new_image
-
-    # 翻转图像
-    flip = rand()<.5
-    if flip: image = image.transpose(Image.FLIP_LEFT_RIGHT)
-
-    # 色域扭曲
-    hue = rand(-hue, hue)
-    sat = rand(1, sat) if rand()<.5 else 1/rand(1, sat)
-    val = rand(1, val) if rand()<.5 else 1/rand(1, val)
-  
-    x = cv2.cvtColor(np.array(image,np.float32)/255, cv2.COLOR_RGB2HSV)
-    x[..., 0] += hue*360
-    x[..., 0][x[..., 0]>1] -= 1
-    x[..., 0][x[..., 0]<0] += 1
-    x[..., 1] *= sat
-    x[..., 2] *= val
-    x[x[:,:, 0]>360, 0] = 360
-    x[:, :, 1:][x[:, :, 1:]>1] = 1
-    x[x<0] = 0
-    image_data = cv2.cvtColor(x, cv2.COLOR_HSV2RGB)*255 # numpy array, 0 to 1
-
-    
-    if len(box)>0:
-        np.random.shuffle(box)
-        box[:, [0,2,4,6,8,10,12]] = box[:, [0,2,4,6,8,10,12]]*nw/iw + dx
-        box[:, [1,3,5,7,9,11,13]] = box[:, [1,3,5,7,9,11,13]]*nh/ih + dy
-        if flip: 
-            box[:, [0,2,4,6,8,10,12]] = w - box[:, [2,0,6,4,8,12,10]]
-            box[:, [5,7,9,11,13]]     = box[:, [7,5,9,13,11]]
-        
-        center_x = (box[:, 0] + box[:, 2])/2
-        center_y = (box[:, 1] + box[:, 3])/2
-    
-        box = box[np.logical_and(np.logical_and(center_x>0, center_y>0), np.logical_and(center_x<w, center_y<h))]
-
-        box[:, 0:14][box[:, 0:14]<0] = 0
-        box[:, [0,2,4,6,8,10,12]][box[:, [0,2,4,6,8,10,12]]>w] = w
-        box[:, [1,3,5,7,9,11,13]][box[:, [1,3,5,7,9,11,13]]>h] = h
-        
-        box_w = box[:, 2] - box[:, 0]
-        box_h = box[:, 3] - box[:, 1]
-        box = box[np.logical_and(box_w>1, box_h>1)] # discard invalid box
-
-    box[:,4:-1][box[:,-1]==-1]=0
-    box[:, [0,2,4,6,8,10,12]] /= w
-    box[:, [1,3,5,7,9,11,13]] /= h
-    box_data = box
-    return image_data, box_data
-
-class DataGenerator(data.Dataset):
-    def __init__(self, txt_path, img_size):
-        self.img_size = img_size
-        self.txt_path = txt_path
-        self.imgs_path, self.words = self.process_labels()
-
-    def process_labels(self):
-        imgs_path = []
-        words = []
-        f = open(self.txt_path,'r')
-        lines = f.readlines()
-        isFirst = True
-        labels = []
-        for line in lines:
-            line = line.rstrip()
-            if line.startswith('#'):
-                if isFirst is True:
-                    isFirst = False
-                else:
-                    labels_copy = labels.copy()
-                    words.append(labels_copy)
-                    labels.clear()
-                path = line[2:]
-                path = self.txt_path.replace('label.txt','images/') + path
-                imgs_path.append(path)
-            else:
-                line = line.split(' ')
-                label = [float(x) for x in line]
-                labels.append(label)
-        words.append(labels)
-        return imgs_path, words
-
-    def __len__(self):
-        return len(self.imgs_path)
-
-    def get_len(self):
-        return len(self.imgs_path)
-
-    def __getitem__(self, index):
-        #-----------------------------------#
-        #   打开图像，获取对应的标签
-        #-----------------------------------#
-        img = Image.open(self.imgs_path[index])
-        labels = self.words[index]
-        annotations = np.zeros((0, 15))
-
-        if len(labels) == 0:
-            return img, annotations
-
-        for idx, label in enumerate(labels):
-            annotation = np.zeros((1, 15))
-            #-----------------------------------#
-            #   bbox 真实框的位置
-            #-----------------------------------#
-            annotation[0, 0] = label[0]  # x1
-            annotation[0, 1] = label[1]  # y1
-            annotation[0, 2] = label[0] + label[2]  # x2
-            annotation[0, 3] = label[1] + label[3]  # y2
-
-            #-----------------------------------#
-            #   landmarks 人脸关键点的位置
-            #-----------------------------------#
-            annotation[0, 4] = label[4]    # l0_x
-            annotation[0, 5] = label[5]    # l0_y
-            annotation[0, 6] = label[7]    # l1_x
-            annotation[0, 7] = label[8]    # l1_y
-            annotation[0, 8] = label[10]   # l2_x
-            annotation[0, 9] = label[11]   # l2_y
-            annotation[0, 10] = label[13]  # l3_x
-            annotation[0, 11] = label[14]  # l3_y
-            annotation[0, 12] = label[16]  # l4_x
-            annotation[0, 13] = label[17]  # l4_y
-            if (annotation[0, 4]<0):
-                annotation[0, 14] = -1
-            else:
-                annotation[0, 14] = 1
-
-            annotations = np.append(annotations, annotation, axis=0)
-            
-        target = np.array(annotations)
-
-        img, target = get_random_data(img, target, [self.img_size,self.img_size])
-
-        img = np.transpose(img - rgb_mean, (2, 0, 1))
-        img = np.array(img, dtype=np.float32)
-        return img, target
-
-def detection_collate(batch):
-    images = []
-    targets = []
-    for img, box in batch:
-        if len(box)==0:
-            continue
-        images.append(img)
-        targets.append(box)
-    images = np.array(images)
-    return images, targets
-
-
 def weights_init(net, init_type='normal', init_gain=0.02):
     def init_func(m):
         classname = m.__class__.__name__
@@ -332,44 +304,3 @@ def weights_init(net, init_type='normal', init_gain=0.02):
             torch.nn.init.constant_(m.bias.data, 0.0)
     print('initialize network with %s type' % init_type)
     net.apply(init_func)
-
-class LossHistory():
-    def __init__(self, log_dir):
-        import datetime
-        curr_time = datetime.datetime.now()
-        time_str = datetime.datetime.strftime(curr_time,'%Y_%m_%d_%H_%M_%S')
-        self.log_dir    = log_dir
-        self.time_str   = time_str
-        self.save_path  = os.path.join(self.log_dir, "loss_" + str(self.time_str))
-        self.losses     = []
-        
-        os.makedirs(self.save_path)
-
-    def append_loss(self, loss):
-        self.losses.append(loss)
-        with open(os.path.join(self.save_path, "epoch_loss_" + str(self.time_str) + ".txt"), 'a') as f:
-            f.write(str(loss))
-            f.write("\n")
-        self.loss_plot()
-
-    def loss_plot(self):
-        iters = range(len(self.losses))
-
-        plt.figure()
-        plt.plot(iters, self.losses, 'red', linewidth = 2, label='train loss')
-        try:
-            if len(self.losses) < 25:
-                num = 5
-            else:
-                num = 15
-            
-            plt.plot(iters, scipy.signal.savgol_filter(self.losses, num, 3), 'green', linestyle = '--', linewidth = 2, label='smooth train loss')
-        except:
-            pass
-
-        plt.grid(True)
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend(loc="upper right")
-
-        plt.savefig(os.path.join(self.save_path, "epoch_loss_" + str(self.time_str) + ".png"))

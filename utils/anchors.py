@@ -1,16 +1,15 @@
 from itertools import product as product
 from math import ceil
 
-import numpy as np
 import torch
 
 
 class Anchors(object):
-    def __init__(self, cfg, image_size=None, phase='train'):
+    def __init__(self, cfg, image_size=None):
         super(Anchors, self).__init__()
-        self.min_sizes = cfg['min_sizes']
-        self.steps = cfg['steps']
-        self.clip = cfg['clip']
+        self.min_sizes  = cfg['min_sizes']
+        self.steps      = cfg['steps']
+        self.clip       = cfg['clip']
         #---------------------------#
         #   图片的尺寸
         #---------------------------#

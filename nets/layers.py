@@ -1,11 +1,6 @@
-import time
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models as models
-import torchvision.models._utils as _utils
-from torch.autograd import Variable
 
 
 #---------------------------------------------------#
@@ -18,6 +13,7 @@ def conv_bn(inp, oup, stride = 1, leaky = 0):
         nn.BatchNorm2d(oup),
         nn.LeakyReLU(negative_slope=leaky, inplace=True)
     )
+    
 def conv_bn1X1(inp, oup, stride, leaky=0):
     return nn.Sequential(
         nn.Conv2d(inp, oup, 1, stride, padding=0, bias=False),
