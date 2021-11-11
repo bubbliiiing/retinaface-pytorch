@@ -16,7 +16,7 @@ class LossHistory():
         
         os.makedirs(self.save_path)
 
-    def append_loss(self, loss, val_loss):
+    def append_loss(self, loss):
         self.losses.append(loss)
         with open(os.path.join(self.save_path, "epoch_loss_" + str(self.time_str) + ".txt"), 'a') as f:
             f.write(str(loss))
