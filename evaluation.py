@@ -11,11 +11,11 @@ from utils.utils_map import evaluation
 #   需要现在retinaface.py里面修改model_path
 #-------------------------------------------#
 if __name__ == '__main__':
-    mAP_retinaface = Retinaface(confidence = 0.01, nms_iou = 0.45)
-    save_folder = './widerface_evaluate/widerface_txt/'
-    gt_dir      = "./widerface_evaluate/ground_truth/"
-    imgs_folder = './data/widerface/val/images/'
-    sub_folders = os.listdir(imgs_folder)
+    mAP_retinaface  = Retinaface(confidence = 0.01, nms_iou = 0.45)
+    save_folder     = './widerface_evaluate/widerface_txt/'
+    gt_dir          = "./widerface_evaluate/ground_truth/"
+    imgs_folder     = './data/widerface/val/images/'
+    sub_folders     = os.listdir(imgs_folder)
 
     test_dataset = []
     for sub_folder in sub_folders:

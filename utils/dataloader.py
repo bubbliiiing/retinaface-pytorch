@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import torch.utils.data as data
 from PIL import Image
+
 from utils.utils import preprocess_input
 
 
@@ -61,7 +62,7 @@ class DataGenerator(data.Dataset):
 
         img, target = self.get_random_data(img, target, [self.img_size,self.img_size])
 
-        img = np.array(np.transpose(preprocess_input(img), (2, 0, 1)), dtype=np.float32)
+        img = np.transpose(preprocess_input(np.array(img, np.float32)), (2, 0, 1))
         return img, target
 
     def rand(self, a=0, b=1):
@@ -100,22 +101,27 @@ class DataGenerator(data.Dataset):
         flip = self.rand()<.5
         if flip: image = image.transpose(Image.FLIP_LEFT_RIGHT)
 
-        #------------------------------------------#
-        #   色域扭曲
-        #------------------------------------------#
-        hue = self.rand(-hue, hue)
-        sat = self.rand(1, sat) if self.rand()<.5 else 1/self.rand(1, sat)
-        val = self.rand(1, val) if self.rand()<.5 else 1/self.rand(1, val)
-        x = cv2.cvtColor(np.array(image,np.float32)/255, cv2.COLOR_RGB2HSV)
-        x[..., 0] += hue*360
-        x[..., 0][x[..., 0]>1] -= 1
-        x[..., 0][x[..., 0]<0] += 1
-        x[..., 1] *= sat
-        x[..., 2] *= val
-        x[x[:,:, 0]>360, 0] = 360
-        x[:, :, 1:][x[:, :, 1:]>1] = 1
-        x[x<0] = 0
-        image_data = cv2.cvtColor(x, cv2.COLOR_HSV2RGB)*255
+        image_data      = np.array(image, np.uint8)
+        #---------------------------------#
+        #   对图像进行色域变换
+        #   计算色域变换的参数
+        #---------------------------------#
+        r               = np.random.uniform(-1, 1, 3) * [hue, sat, val] + 1
+        #---------------------------------#
+        #   将图像转到HSV上
+        #---------------------------------#
+        hue, sat, val   = cv2.split(cv2.cvtColor(image_data, cv2.COLOR_RGB2HSV))
+        dtype           = image_data.dtype
+        #---------------------------------#
+        #   应用变换
+        #---------------------------------#
+        x       = np.arange(0, 256, dtype=r.dtype)
+        lut_hue = ((x * r[0]) % 180).astype(dtype)
+        lut_sat = np.clip(x * r[1], 0, 255).astype(dtype)
+        lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
+
+        image_data = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val)))
+        image_data = cv2.cvtColor(image_data, cv2.COLOR_HSV2RGB)
 
         #---------------------------------#
         #   对真实框进行调整
