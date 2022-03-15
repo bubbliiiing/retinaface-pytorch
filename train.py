@@ -26,7 +26,7 @@ if __name__ == "__main__":
     #--------------------------------#
     #   获得训练用的人脸标签与坐标
     #--------------------------------#
-    training_dataset_path = './data/widerface/train/label.txt'
+    training_dataset_path = 'data/widerface/train/label.txt'
     #-------------------------------#
     #   主干特征提取网络的选择
     #   mobilenet或者resnet50
