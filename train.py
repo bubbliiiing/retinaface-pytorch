@@ -133,6 +133,10 @@ if __name__ == "__main__":
     #   save_period     多少个epoch保存一次权值，默认每个世代都保存
     #------------------------------------------------------------------#
     save_period         = 1
+    #------------------------------------------------------------------#
+    #   save_dir        权值与日志文件保存的文件夹
+    #------------------------------------------------------------------#
+    save_dir            = 'logs'
     #-------------------------------------------------------------------#
     #   用于设置是否使用多线程读取数据，0代表关闭多线程
     #   开启后会加快数据读取速度，但是会占用更多内存
@@ -162,7 +166,7 @@ if __name__ == "__main__":
         model_dict.update(pretrained_dict)
         model.load_state_dict(model_dict)
         
-    loss_history    = LossHistory("logs/", model, input_shape=(cfg['train_image_size'], cfg['train_image_size']))
+    loss_history    = LossHistory(save_dir, model, input_shape=(cfg['train_image_size'], cfg['train_image_size']))
     criterion       = MultiBoxLoss(2, 0.35, 7, cfg['variance'], Cuda)
 
     model_train = model.train()
@@ -269,6 +273,6 @@ if __name__ == "__main__":
                 UnFreeze_flag = True
                 
             set_optimizer_lr(optimizer, lr_scheduler_func, epoch)
-            fit_one_epoch(model_train, model, loss_history, optimizer, criterion, epoch, epoch_step, gen, UnFreeze_Epoch, anchors, cfg, Cuda, save_period)
+            fit_one_epoch(model_train, model, loss_history, optimizer, criterion, epoch, epoch_step, gen, UnFreeze_Epoch, anchors, cfg, Cuda, save_period, save_dir)
 
         loss_history.writer.close()
