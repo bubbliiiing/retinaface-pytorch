@@ -1,14 +1,14 @@
+import os
+
 import torch
 from tqdm import tqdm
+
 from utils.utils import get_lr
 
-def get_lr(optimizer):
-    for param_group in optimizer.param_groups:
-        return param_group['lr']
 
-def fit_one_epoch(model_train, model, loss_history, optimizer, criterion, epoch, epoch_step, gen, Epoch, anchors, cfg, cuda):
-    total_r_loss = 0
-    total_c_loss = 0
+def fit_one_epoch(model_train, model, loss_history, optimizer, criterion, epoch, epoch_step, gen, Epoch, anchors, cfg, cuda, save_period, save_dir):
+    total_r_loss        = 0
+    total_c_loss        = 0
     total_landmark_loss = 0
 
     print('Start Train')
@@ -17,7 +17,7 @@ def fit_one_epoch(model_train, model, loss_history, optimizer, criterion, epoch,
             if iteration >= epoch_step:
                 break
             images, targets = batch[0], batch[1]
-            if len(images)==0:
+            if len(images) == 0:
                 continue
             with torch.no_grad():
                 if cuda:
@@ -52,7 +52,8 @@ def fit_one_epoch(model_train, model, loss_history, optimizer, criterion, epoch,
                                 'LandMark Loss'     : total_landmark_loss / (iteration + 1), 
                                 'lr'                : get_lr(optimizer)})
             pbar.update(1)
-
-    print('Saving state, iter:', str(epoch+1))
-    torch.save(model.state_dict(), 'logs/Epoch%d-Total_Loss%.4f.pth'%((epoch+1),(total_c_loss + total_r_loss + total_landmark_loss)/(epoch_step+1)))
-    loss_history.append_loss((total_c_loss + total_r_loss + total_landmark_loss)/(epoch_step+1))
+            
+    loss_history.append_loss(epoch + 1, (total_c_loss + total_r_loss + total_landmark_loss) / epoch_step)
+    print('Saving state, iter:', str(epoch + 1))
+    if (epoch + 1) % save_period == 0 or epoch + 1 == Epoch:
+        torch.save(model.state_dict(), os.path.join(save_dir, 'Epoch%d-Total_Loss%.4f.pth'%((epoch + 1), (total_c_loss + total_r_loss + total_landmark_loss) / epoch_step)))
