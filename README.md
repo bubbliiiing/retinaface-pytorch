@@ -26,10 +26,10 @@ pytorch==1.2.0
 
 ## 文件下载
 训练所需的Retinaface_resnet50.pth等文件可以在百度云下载。    
-链接: https://pan.baidu.com/s/1xneLH0YtiDfO2oncesRY6w 提取码: 2a1y    
+链接: https://pan.baidu.com/s/1Jt9Bo2UVP03bmEMuUpk_9Q 提取码: qknw     
 
 数据集可以在如下连接里下载。      
-链接: https://pan.baidu.com/s/1LIYlK5sVx4qsK9tvEuJ4cw 提取码: 2yvx    
+链接: https://pan.baidu.com/s/1bsgay9iMihPlAKE49aWNTA 提取码: bhee    
 
 ## 预测步骤
 ### a、使用预训练权重
