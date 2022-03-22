@@ -2,14 +2,20 @@
 ---
 
 ## 目录
-1. [性能情况 Performance](#性能情况)
-2. [注意事项 Attention](#注意事项)
+1. [仓库更新 Top News](#仓库更新)
+2. [性能情况 Performance](#性能情况)
 3. [所需环境 Environment](#所需环境)
 4. [文件下载 Download](#文件下载)
 5. [预测步骤 How2predict](#预测步骤)
 6. [训练步骤 How2train](#训练步骤)
 7. [评估步骤 Eval](#评估步骤)
-7. [参考资料 Reference](#Reference)
+8. [参考资料 Reference](#Reference)
+
+## Top News
+**`2022-03`**:**进行了大幅度的更新，支持step、cos学习率下降法、支持adam、sgd优化器选择、支持学习率根据batch_size自适应调整。**  
+BiliBili视频中的原仓库地址为：https://github.com/bubbliiiing/retinaface-keras/tree/bilibili
+
+**`2020-09`**:**仓库创建，支持模型训练，大量的注释，多个主干的选择，多个可调整参数。**   
 
 ## 性能情况
 | 训练数据集 | 权值文件名称 | 测试数据集 | 输入图片大小 | Easy | Medium | Hard |
@@ -17,19 +23,15 @@
 | Widerface-Train | Retinaface_mobilenet0.25.pth | Widerface-Val | 1280x1280 | 89.76% | 86.96% | 74.69% |
 | Widerface-Train | Retinaface_resnet50.pth | Widerface-Val | 1280x1280 | 94.72% | 93.13% | 84.48% |
 
-## 注意事项
-本库下载过来可以直接进行预测，已经在model_data文件夹下存放了Retinaface_mobilenet0.25.pth文件，可用于预测。  
-如果想要使用基于resnet50的retinaface请下载Retinaface_resnet50.pth进行预测。  
-
 ## 所需环境
 pytorch==1.2.0
 
 ## 文件下载
 训练所需的Retinaface_resnet50.pth等文件可以在百度云下载。    
-链接: https://pan.baidu.com/s/1xneLH0YtiDfO2oncesRY6w 提取码: 2a1y    
+链接: https://pan.baidu.com/s/1Jt9Bo2UVP03bmEMuUpk_9Q 提取码: qknw     
 
 数据集可以在如下连接里下载。      
-链接: https://pan.baidu.com/s/1LIYlK5sVx4qsK9tvEuJ4cw 提取码: 2yvx    
+链接: https://pan.baidu.com/s/1bsgay9iMihPlAKE49aWNTA 提取码: bhee    
 
 ## 预测步骤
 ### a、使用预训练权重
